@@ -6,7 +6,7 @@
 
 You'll need to have [ollama](https://ollama.com) installed and running
 
-> At this time being, ochat is using `gemma3:1b`
+> At this time being, ochat is using `gemma3:1b` so you'll need to run `ollama pull gemma3:1b` to have the model
 
 1. Install the dependencies of the project
 
