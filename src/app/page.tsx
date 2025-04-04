@@ -1,4 +1,3 @@
-import { Sidebar } from "@/components/Sidebar";
 import RootLayout from "./layout";
 import { Chat } from "@/components/Chat";
 

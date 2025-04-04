@@ -54,11 +54,13 @@ export function Chat() {
 
         // replace(/<think>.*<\/think>/gs, "")
         message += JSON.parse(decoder.decode(value)).message.content;
+        //@ts-expect-error temporary ignore
         setLastMessage((prev) => ({
           ...prev,
           content: message,
         }));
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_) {
     } finally {
       setIsThinking(false);
