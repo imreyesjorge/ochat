@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatBubble } from "../ChatBubble";
 import { PromptInput } from "../PromptInput";
+import { ModelSelector } from "../ModelSelector";
 import { useOllamaStatus } from "@/hooks/useOllamaStatus";
+import { useOllamaModels } from "@/hooks/useOllamaModels";
 import { marked } from "marked";
 
 enum ROLE_TYPE {
@@ -17,8 +19,6 @@ type Message = {
 };
 
 export function Chat() {
-  const model = "gemma3:1b";
-
   const [messages, setMessages] = useState<Message[]>([]);
   const [lastMessage, setLastMessage] = useState<Message | null>(null);
   const [thinking, setIsThinking] = useState<boolean>(false);
@@ -30,6 +30,7 @@ export function Chat() {
   const lastScrollTopRef = useRef<number>(0);
 
   const { isDead, isTrying, retryConnection } = useOllamaStatus();
+  const { models, selectedModel, setSelectedModel, isLoading: modelsLoading, error: modelsError } = useOllamaModels();
 
   // Check if user is near the bottom of the scroll container
   const isNearBottom = useCallback(() => {
@@ -81,6 +82,11 @@ export function Chat() {
   }, [isUserScrolling, isNearBottom]);
 
   const getResponse = useCallback(async () => {
+    if (!selectedModel) {
+      console.error("No model selected");
+      return;
+    }
+
     let message = "";
     setIsThinking(true);
     setLastMessage(() => ({ role: ROLE_TYPE.AGENT, content: undefined }));
@@ -94,7 +100,7 @@ export function Chat() {
       const response = await fetch("http://localhost:11434/api/chat", {
         method: "POST",
         body: JSON.stringify({
-          model,
+          model: selectedModel,
           stream: true,
           messages,
         }),
@@ -131,7 +137,7 @@ export function Chat() {
       ]);
       setLastMessage(() => null);
     }
-  }, [messages, isNearBottom]);
+  }, [messages, selectedModel, isNearBottom]);
 
   const addMessage = (prompt: FormDataEntryValue | null) => {
     if (!prompt) return;
@@ -186,6 +192,52 @@ export function Chat() {
     }
   }, []);
 
+  // Show loading state while fetching models
+  if (modelsLoading) {
+    return (
+      <main className="size-full grid place-items-center">
+        <p className="animate-pulse py-2 px-4 rounded-lg bg-zinc-800">
+          Loading available models...
+        </p>
+      </main>
+    );
+  }
+
+  // Show error state if models failed to load
+  if (modelsError) {
+    return (
+      <main className="size-full grid place-items-center">
+        <div className="flex flex-col gap-2 items-center">
+          <p className="py-2 px-4 rounded-lg bg-zinc-800 text-red-400">
+            Failed to load models: {modelsError}
+          </p>
+          <button
+            className="text-zinc-600 cursor-pointer hover:text-zinc-400"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // Show message if no models are available
+  if (models.length === 0) {
+    return (
+      <main className="size-full grid place-items-center">
+        <div className="flex flex-col gap-2 items-center">
+          <p className="py-2 px-4 rounded-lg bg-zinc-800">
+            No models found. Please install a model using Ollama.
+          </p>
+          <p className="text-sm text-zinc-600">
+            Run: <code className="bg-zinc-800 px-2 py-1 rounded">ollama pull &lt;model-name&gt;</code>
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (isTrying) {
     return (
       <main className="size-full grid place-items-center">
@@ -216,10 +268,23 @@ export function Chat() {
 
   return (
     <main className="size-full max-h-full grid grid-rows-[1fr_min-content] overflow-hidden relative">
-      <div className="w-full flex p-4 justify-center absolute top-0 left-0 backdrop-blur-xs">
-        <p className="text-zinc-600 border bg-zinc-950 border-zinc-700 py-1 px-2 text-sm font-medium rounded-lg">
-          {model}
-        </p>
+      <div className="w-full flex p-4 justify-center absolute top-0 left-0 backdrop-blur-sm z-10">
+        <div className="flex items-center gap-3">
+          <ModelSelector
+            models={models}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            disabled={thinking}
+          />
+          {models.length > 1 && (
+            <div className="flex items-center gap-1 text-zinc-500 text-xs bg-zinc-950/60 backdrop-blur-sm px-2 py-1 rounded-lg border border-zinc-800/40">
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+              </svg>
+              <span>{models.length} models</span>
+            </div>
+          )}
+        </div>
       </div>
       <div
         className="p-6 flex flex-col gap-6 overflow-y-auto pt-20 scroll-smooth"
