@@ -22,15 +22,73 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [lastMessage, setLastMessage] = useState<Message | null>(null);
   const [thinking, setIsThinking] = useState<boolean>(false);
+  const [isUserScrolling, setIsUserScrolling] = useState<boolean>(false);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState<boolean>(true);
 
   const container = useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastScrollTopRef = useRef<number>(0);
 
   const { isDead, isTrying, retryConnection } = useOllamaStatus();
+
+  // Check if user is near the bottom of the scroll container
+  const isNearBottom = useCallback(() => {
+    if (!container.current) return false;
+    const { scrollTop, scrollHeight, clientHeight } = container.current;
+    return scrollHeight - scrollTop - clientHeight < 100; // 100px threshold
+  }, []);
+
+  // Smooth scroll to bottom
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (!container.current) return;
+    
+    container.current.scrollTo({
+      top: container.current.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  }, []);
+
+  // Handle scroll events to detect user interaction
+  const handleScroll = useCallback(() => {
+    if (!container.current) return;
+
+    const currentScrollTop = container.current.scrollTop;
+    const isScrollingUp = currentScrollTop < lastScrollTopRef.current;
+    
+    // If user scrolled up manually, disable auto-scroll
+    if (isScrollingUp && !isUserScrolling) {
+      setIsUserScrolling(true);
+      setShouldAutoScroll(false);
+    }
+    
+    // If user scrolled back to near bottom, re-enable auto-scroll
+    if (isNearBottom() && isUserScrolling) {
+      setIsUserScrolling(false);
+      setShouldAutoScroll(true);
+    }
+
+    lastScrollTopRef.current = currentScrollTop;
+
+    // Clear existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    // Set a timeout to detect when scrolling stops
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsUserScrolling(false);
+    }, 150);
+  }, [isUserScrolling, isNearBottom]);
 
   const getResponse = useCallback(async () => {
     let message = "";
     setIsThinking(true);
     setLastMessage(() => ({ role: ROLE_TYPE.AGENT, content: undefined }));
+    
+    // Ensure auto-scroll is enabled when starting a new response
+    if (isNearBottom()) {
+      setShouldAutoScroll(true);
+    }
 
     try {
       const response = await fetch("http://localhost:11434/api/chat", {
@@ -73,10 +131,14 @@ export function Chat() {
       ]);
       setLastMessage(() => null);
     }
-  }, [messages]);
+  }, [messages, isNearBottom]);
 
   const addMessage = (prompt: FormDataEntryValue | null) => {
     if (!prompt) return;
+
+    // Enable auto-scroll when user sends a new message
+    setShouldAutoScroll(true);
+    setIsUserScrolling(false);
 
     setMessages((prev) => [
       ...prev,
@@ -92,11 +154,37 @@ export function Chat() {
     getResponse();
   }, [messages, getResponse]);
 
+  // Handle auto-scrolling during message updates
+  useEffect(() => {
+    if (shouldAutoScroll && !isUserScrolling) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        scrollToBottom(true);
+      });
+    }
+  }, [messages, lastMessage, shouldAutoScroll, isUserScrolling, scrollToBottom]);
+
+  // Set up scroll event listener
+  useEffect(() => {
+    const containerElement = container.current;
+    if (!containerElement) return;
+
+    containerElement.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      containerElement.removeEventListener('scroll', handleScroll);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [handleScroll]);
+
+  // Initialize scroll position on mount
   useEffect(() => {
     if (container.current) {
-      container.current.scrollTop = container.current.scrollHeight;
+      lastScrollTopRef.current = container.current.scrollTop;
     }
-  }, [messages, lastMessage]);
+  }, []);
 
   if (isTrying) {
     return (
@@ -134,8 +222,9 @@ export function Chat() {
         </p>
       </div>
       <div
-        className="p-6 flex flex-col gap-6 overflow-y-auto pt-20"
+        className="p-6 flex flex-col gap-6 overflow-y-auto pt-20 scroll-smooth"
         ref={container}
+        style={{ scrollBehavior: 'smooth' }}
       >
         {messages.map(({ content, role }, index) => (
           <ChatBubble
@@ -153,6 +242,35 @@ export function Chat() {
           />
         )}
       </div>
+      
+      {/* Scroll to bottom button */}
+      {!shouldAutoScroll && (
+        <button
+          onClick={() => {
+            setShouldAutoScroll(true);
+            setIsUserScrolling(false);
+            scrollToBottom(true);
+          }}
+          className="absolute bottom-20 right-6 bg-zinc-800 hover:bg-zinc-700 text-white p-3 rounded-full shadow-lg transition-all duration-200 border border-zinc-600"
+          aria-label="Scroll to bottom"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M7 13l3 3 3-3" />
+            <path d="M7 6l3 3 3-3" />
+          </svg>
+        </button>
+      )}
+      
       <PromptInput onSubmit={addMessage} disabled={thinking} />
     </main>
   );
